@@ -1,0 +1,33 @@
+# UTF-8
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 7, 0, 0),
+    prodvers=(1, 7, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          u'040904B0',
+          [
+            StringStruct(u'CompanyName', u'mrSaT13'),
+            StringStruct(u'FileDescription', u'NeuraTTY — SSH-клиент для всех'),
+            StringStruct(u'FileVersion', u'1.7.0.0'),
+            StringStruct(u'InternalName', u'NeuraTTY'),
+            StringStruct(u'LegalCopyright', u'© mrSaT13. Все права защищены.'),
+            StringStruct(u'OriginalFilename', u'NeuraTTY.exe'),
+            StringStruct(u'ProductName', u'NeuraTTY'),
+            StringStruct(u'ProductVersion', u'1.7.0.0')
+          ]
+        )
+      ]
+    ),
+    VarFileInfo([VarStruct(u'Translation', [1033, 1010])])
+  ]
+)

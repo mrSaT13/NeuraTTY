@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
+*.spec
+*.exe
+
+# Inno Setup
+Output/
+
+# App secrets — НЕ коммитить реальные данные!
+sessions.json
+settings.json
+known_hosts
+.fernet_key
+*.log
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
