@@ -7,7 +7,8 @@
 
 Современное приложение на PyQt5 для подключения к удалённым серверам по SSH: вкладки, SFTP-браузер, темы терминала, шифрование паролей и PIN-защита.
 
-![screenshot](screenshots/screenshot.png)
+<img width="1000" height="732" alt="изображение" src="https://github.com/user-attachments/assets/8884aa0f-0748-4b50-9aaf-e9a0c5ef1962" />
+
 
 ## ✨ Возможности
 
