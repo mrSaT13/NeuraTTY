@@ -1,8 +1,8 @@
 # UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 7, 0, 0),
-    prodvers=(1, 7, 0, 0),
+    filevers=(1, 8, 0, 0),
+    prodvers=(1, 8, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -18,12 +18,12 @@ VSVersionInfo(
           [
             StringStruct(u'CompanyName', u'mrSaT13'),
             StringStruct(u'FileDescription', u'NeuraTTY — SSH-клиент для всех'),
-            StringStruct(u'FileVersion', u'1.7.0.0'),
+            StringStruct(u'FileVersion', u'1.8.0.0'),
             StringStruct(u'InternalName', u'NeuraTTY'),
             StringStruct(u'LegalCopyright', u'© mrSaT13. Все права защищены.'),
             StringStruct(u'OriginalFilename', u'NeuraTTY.exe'),
             StringStruct(u'ProductName', u'NeuraTTY'),
-            StringStruct(u'ProductVersion', u'1.7.0.0')
+            StringStruct(u'ProductVersion', u'1.8.0.0')
           ]
         )
       ]

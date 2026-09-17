@@ -11,7 +11,7 @@ from pathlib import Path
 from functools import partial
 
 from PyQt5 import QtGui, QtWidgets
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QEvent, QMetaObject
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QEvent
 from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextCursor, QKeySequence, QPainter
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -193,17 +193,20 @@ def save_host_keys(hk):
         return False
 
 
-def build_connect_kwargs(host, port, username, password, key_path):
+def build_connect_kwargs(host, port, username, password, key_path, use_key=False):
     """kwargs для SSHClient.connect: только то, что настроил юзер.
 
     allow_agent=False / look_for_keys=False обязательны: иначе paramiko
     сначала перебирает ключи агента и ~/.ssh/id_* и только потом пробует
     пароль (а при MaxAuthTries / шифрованном локальном ключе пароль может
     вообще не дойти до сервера).
+
+    Ключ используется ТОЛЬКО при включённом тумблере use_key, иначе —
+    всегда чистый логин/пароль.
     """
     kwargs = dict(hostname=host, port=port, username=username, timeout=10,
                   allow_agent=False, look_for_keys=False)
-    if key_path and os.path.isfile(key_path):
+    if use_key and key_path and os.path.isfile(key_path):
         # пароль в поле = passphrase от ключа, если задан
         if password:
             kwargs["passphrase"] = password
@@ -544,7 +547,9 @@ LANG = {
         "fld_name": "Имя сессии:", "fld_host": "Хост:", "fld_port": "Порт:",
         "fld_user": "Имя пользователя:", "fld_pass": "Пароль:",
         "fld_key": "Приватный ключ:",
+        "fld_use_key": "Использовать SSH-ключ",
         "pass_ph": "Пароль или passphrase от ключа",
+        "pass_ph_plain": "Пароль",
         "btn_browse": "Обзор…",
         "btn_save_connect": "💾 Сохранить и подключиться",
         "btn_connect": "🔌 Подключиться",
@@ -656,7 +661,9 @@ LANG = {
         "fld_name": "Session name:", "fld_host": "Host:", "fld_port": "Port:",
         "fld_user": "Username:", "fld_pass": "Password:",
         "fld_key": "Private key:",
+        "fld_use_key": "Use SSH key",
         "pass_ph": "Password or key passphrase",
+        "pass_ph_plain": "Password",
         "btn_browse": "Browse…",
         "btn_save_connect": "💾 Save & connect",
         "btn_connect": "🔌 Connect",
@@ -765,7 +772,7 @@ def tr(key, lang="ru"):
 def about_html(lang="ru"):
     if lang == "en":
         return (
-            "<h3>NeuraTTY v1.7</h3>"
+            "<h3>NeuraTTY v1.8</h3>"
             "<p>SSH client: terminal, SFTP, known_hosts, PIN protection.</p>"
             "<p><b>Features:</b></p>"
             "<ul>"
@@ -779,7 +786,7 @@ def about_html(lang="ru"):
             "© 2025. All rights reserved.</p>"
         )
     return (
-        "<h3>NeuraTTY v1.7</h3>"
+        "<h3>NeuraTTY v1.8</h3>"
         "<p>SSH-клиент: терминал, SFTP, known_hosts, PIN-защита.</p>"
         "<p><b>Основные функции:</b></p>"
         "<ul>"
@@ -1188,6 +1195,7 @@ class SSHTab(QWidget):
     data_received = pyqtSignal(bytes)
     resize_requested = pyqtSignal()
     host_key_prompt = pyqtSignal(object)
+    connected_ok = pyqtSignal()
 
     def __init__(self, tab_widget, name, config, app, theme="Dracula"):
         super().__init__()
@@ -1295,6 +1303,7 @@ class SSHTab(QWidget):
         username = self.config.get("username", "").strip()
         password = self.config.get("password", "")
         key_path = self.config.get("key_path", "").strip()
+        use_key = bool(self.config.get("use_key", False))
         if not host or not username:
             QMessageBox.critical(self, self.t("title_error"), self.t("err_host_user"))
             return
@@ -1309,7 +1318,7 @@ class SSHTab(QWidget):
             self.app.update_tab_status(self)
         self.thread = threading.Thread(
             target=self._connect_thread,
-            args=(host, port, username, password, key_path),
+            args=(host, port, username, password, key_path, use_key),
             daemon=True
         )
         self.thread.start()
@@ -1336,7 +1345,7 @@ class SSHTab(QWidget):
         if not silent and hasattr(self.app, "update_tab_status"):
             self.app.update_tab_status(self)
 
-    def _connect_thread(self, host, port, username, password, key_path):
+    def _connect_thread(self, host, port, username, password, key_path, use_key=False):
         try:
             # 1) known_hosts: получаем ключ сервера ДО авторизации
             try:
@@ -1364,7 +1373,7 @@ class SSHTab(QWidget):
                     self.ssh_client.get_host_keys().add(hid, remote_key.get_name(), remote_key)
                 except Exception:
                     pass
-            connect_kwargs = build_connect_kwargs(host, port, username, password, key_path)
+            connect_kwargs = build_connect_kwargs(host, port, username, password, key_path, use_key)
             self.ssh_client.connect(**connect_kwargs)
             if save:
                 try:
@@ -1379,8 +1388,10 @@ class SSHTab(QWidget):
             self.touch_activity()
             # Потокобезопасно: просим GUI-поток сделать resize
             self.resize_requested.emit()
-            if hasattr(self.app, "on_tab_connected"):
-                QMetaObject.invokeMethod(self.app, "on_tab_connected", Qt.QueuedConnection)
+            # Потокобезопасно: сигнал в GUI-поток (без хрупкого
+            # QMetaObject.invokeMethod по имени — он падает RuntimeError,
+            # если метод не pyqtSlot, и роняет КАЖДОЕ успешное подключение)
+            self.connected_ok.emit()
             self._read_loop()
         except Exception as e:
             self.connecting = False
@@ -2375,13 +2386,31 @@ class PyTTYApp(QMainWindow):
             lambda checked: password_input.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
         )
         password_input.addAction(eye, QLineEdit.TrailingPosition)
+        # Тумблер «использовать SSH-ключ»: выкл = обычный логин/пароль
+        use_key_check = QtWidgets.QCheckBox(self.t("fld_use_key"))
+        use_key_check.setChecked(bool(config.get("use_key", False)))
         key_path_input = QLineEdit(config.get("key_path", ""))
         try:
             browse_btn = QPushButton(self.t("btn_browse"))
         except Exception:
             browse_btn = QPushButton("Обзор…")
         browse_btn.clicked.connect(lambda: self.browse_key(key_path_input))
-        return name_input, host_input, port_input, username_input, password_input, key_path_input, browse_btn
+        # Путь и обзор активны только при включённом тумблере
+        key_path_input.setEnabled(use_key_check.isChecked())
+        browse_btn.setEnabled(use_key_check.isChecked())
+        use_key_check.toggled.connect(key_path_input.setEnabled)
+        use_key_check.toggled.connect(browse_btn.setEnabled)
+        # Подсказка поля пароля зависит от режима: passphrase vs обычный пароль
+        def _refresh_pass_placeholder(checked):
+            try:
+                password_input.setPlaceholderText(
+                    self.t("pass_ph") if checked else self.t("pass_ph_plain"))
+            except Exception:
+                pass
+        use_key_check.toggled.connect(_refresh_pass_placeholder)
+        _refresh_pass_placeholder(use_key_check.isChecked())
+        return (name_input, host_input, port_input, username_input,
+                password_input, key_path_input, browse_btn, use_key_check)
 
     def new_session_dialog(self):
         if self._guard_locked():
@@ -2396,13 +2425,15 @@ class PyTTYApp(QMainWindow):
 
         form_layout = QFormLayout()
         (name_input, host_input, port_input, username_input,
-         password_input, key_path_input, browse_btn) = self._build_session_form(self.t("new_session"))
+         password_input, key_path_input, browse_btn,
+         use_key_check) = self._build_session_form(self.t("new_session"))
 
         form_layout.addRow(self.t("fld_name"), name_input)
         form_layout.addRow(self.t("fld_host"), host_input)
         form_layout.addRow(self.t("fld_port"), port_input)
         form_layout.addRow(self.t("fld_user"), username_input)
         form_layout.addRow(self.t("fld_pass"), password_input)
+        form_layout.addRow("", use_key_check)
         key_layout = QHBoxLayout()
         key_layout.addWidget(key_path_input)
         key_layout.addWidget(browse_btn)
@@ -2414,12 +2445,14 @@ class PyTTYApp(QMainWindow):
         save_btn = QPushButton(self.t("btn_save_connect"))
         save_btn.clicked.connect(lambda: self.save_and_connect_session(
             name_input.text(), host_input.text(), port_input.value(),
-            username_input.text(), password_input.text(), key_path_input.text(), dialog
+            username_input.text(), password_input.text(), key_path_input.text(),
+            use_key_check.isChecked(), dialog
         ))
         connect_btn = QPushButton(self.t("btn_connect"))
         connect_btn.clicked.connect(lambda: self.connect_session(
             name_input.text(), host_input.text(), port_input.value(),
-            username_input.text(), password_input.text(), key_path_input.text(), dialog
+            username_input.text(), password_input.text(), key_path_input.text(),
+            use_key_check.isChecked(), dialog
         ))
         cancel_btn = QPushButton(self.t("btn_cancel"))
         cancel_btn.clicked.connect(dialog.reject)
@@ -2439,7 +2472,7 @@ class PyTTYApp(QMainWindow):
         if path:
             entry.setText(path)
 
-    def save_and_connect_session(self, name, host, port, username, password, key_path, dialog):
+    def save_and_connect_session(self, name, host, port, username, password, key_path, use_key, dialog):
         name = name.strip() or self.t("untitled")
         host = host.strip()
         username = username.strip()
@@ -2452,7 +2485,8 @@ class PyTTYApp(QMainWindow):
             "port": port,
             "username": username,
             "password": password,
-            "key_path": key_path.strip()
+            "key_path": key_path.strip(),
+            "use_key": bool(use_key),
         }
 
         self.sessions[name] = config
@@ -2460,7 +2494,7 @@ class PyTTYApp(QMainWindow):
         self.create_new_tab(name, config)
         dialog.accept()
 
-    def connect_session(self, name, host, port, username, password, key_path, dialog):
+    def connect_session(self, name, host, port, username, password, key_path, use_key, dialog):
         name = name.strip() or self.t("untitled")
         host = host.strip()
         username = username.strip()
@@ -2473,7 +2507,8 @@ class PyTTYApp(QMainWindow):
             "port": port,
             "username": username,
             "password": password,
-            "key_path": key_path.strip()
+            "key_path": key_path.strip(),
+            "use_key": bool(use_key),
         }
 
         self.create_new_tab(name, config)
@@ -2491,6 +2526,7 @@ class PyTTYApp(QMainWindow):
         ssh_tab.disconnected.connect(self.on_tab_disconnect)
         ssh_tab.new_data.connect(self.on_new_data)
         ssh_tab.host_key_prompt.connect(self.prompt_host_key)
+        ssh_tab.connected_ok.connect(self.on_tab_connected)
         self.tabs[tab_id] = ssh_tab
         index = self.notebook.addTab(ssh_tab, f"◌ {tab_id}")
         self.notebook.setCurrentIndex(index)
@@ -2743,13 +2779,15 @@ class PyTTYApp(QMainWindow):
 
         form_layout = QFormLayout()
         (name_input, host_input, port_input, username_input,
-         password_input, key_path_input, browse_btn) = self._build_session_form(str(old_name), config)
+         password_input, key_path_input, browse_btn,
+         use_key_check) = self._build_session_form(str(old_name), config)
 
         form_layout.addRow(self.t("fld_name"), name_input)
         form_layout.addRow(self.t("fld_host"), host_input)
         form_layout.addRow(self.t("fld_port"), port_input)
         form_layout.addRow(self.t("fld_user"), username_input)
         form_layout.addRow(self.t("fld_pass"), password_input)
+        form_layout.addRow("", use_key_check)
         key_layout = QHBoxLayout()
         key_layout.addWidget(key_path_input)
         key_layout.addWidget(browse_btn)
@@ -2759,7 +2797,7 @@ class PyTTYApp(QMainWindow):
 
         button_layout = QHBoxLayout()
         save_btn = QPushButton(self.t("btn_save"))
-        save_btn.clicked.connect(lambda: self.save_edited_session(old_name, name_input.text(), host_input.text(), port_input.value(), username_input.text(), password_input.text(), key_path_input.text(), dialog))
+        save_btn.clicked.connect(lambda: self.save_edited_session(old_name, name_input.text(), host_input.text(), port_input.value(), username_input.text(), password_input.text(), key_path_input.text(), use_key_check.isChecked(), dialog))
         cancel_btn = QPushButton(self.t("btn_cancel"))
         cancel_btn.clicked.connect(dialog.reject)
 
@@ -2769,7 +2807,7 @@ class PyTTYApp(QMainWindow):
 
         dialog.exec_()
 
-    def save_edited_session(self, old_name, new_name, host, port, username, password, key_path, dialog):
+    def save_edited_session(self, old_name, new_name, host, port, username, password, key_path, use_key, dialog):
         new_name = new_name.strip() or self.t("untitled")
         host = host.strip()
         username = username.strip()
@@ -2782,7 +2820,8 @@ class PyTTYApp(QMainWindow):
             "port": port,
             "username": username,
             "password": password,
-            "key_path": key_path.strip()
+            "key_path": key_path.strip(),
+            "use_key": bool(use_key),
         }
 
         if old_name in self.sessions:
@@ -2976,6 +3015,10 @@ class PyTTYApp(QMainWindow):
                         v = dict(v or {})
                         # миграция: расшифровываем пароль/passphrase, plain остается как был
                         v["password"] = decrypt_secret(str(v.get("password", "")))
+                        # миграция тумблера ключа: у старых сессий с путём ключа
+                        # поведение сохраняем (ключ был включён неявно)
+                        if "use_key" not in v:
+                            v["use_key"] = bool(str(v.get("key_path", "")).strip())
                         out[str(k)] = v
                     # если были plain-пароли — тихо пересохраняем уже шифрованными
                     try:
